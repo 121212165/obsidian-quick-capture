@@ -1,0 +1,9 @@
+{
+  "id": "quick-capture",
+  "name": "Quick Capture",
+  "version": "0.1.0",
+  "minAppVersion": "1.4.0",
+  "description": "Frictionless thought capture: a hotkey opens a one-line modal, Enter appends the timestamped line (with source note link and selection) to your inbox note or daily note.",
+  "author": "121212165",
+  "isDesktopOnly": false
+}
