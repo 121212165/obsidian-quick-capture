@@ -10,6 +10,7 @@ const { Plugin, Modal, Notice, PluginSettingTab, Setting, MarkdownView, TFile, n
 const DEFAULT_SETTINGS = {
   mode: "inbox",            // inbox | daily
   inboxFile: "收件箱.md",
+  globalHotkey: "", // 系统级热键，如 CommandOrControl+Alt+Q（桌面端）
   dailyFolder: "日记",
   dailyFormat: "YYYY-MM-DD",
   template: "- {time} {content} {source}",
@@ -33,9 +34,44 @@ module.exports = class QuickCapture extends Plugin {
 
     this.addRibbonIcon("capture", "Quick Capture 极速捕捉", () => this.openCapture());
     this.addCommand({ id: "capture", name: "捕捉一条想法", callback: () => this.openCapture() });
+    this.addCommand({ id: "capture-clip", name: "捕捉剪贴板内容", callback: async () => {
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text && text.trim()) await this.append(text.trim().slice(0, 500));
+        else new Notice("剪贴板为空");
+      } catch (e) { new Notice("读取剪贴板失败（需要窗口焦点）"); }
+    } });
     this.addSettingTab(new QCSettingTab(this.app, this));
+
+    // 系统级全局热键（Obsidian 未聚焦也能呼出捕捉框）
+    this.registerGlobalHotkey();
   }
-  async saveSettings() { await this.saveData(this.settings); }
+
+  registerGlobalHotkey() {
+    if (!(this.settings.globalHotkey || "").trim()) return;
+    try {
+      // Obsidian 桌面端暴露 electron remote；web/移动端自动跳过
+      const remote = window.electron && window.electron.remote;
+      if (!remote || !remote.globalShortcut) return;
+      const registered = remote.globalShortcut.register(this.settings.globalHotkey, () => {
+        this.openCapture();
+        try { this.app.window.focus(); } catch (e) {}
+      });
+      if (registered) new Notice("全局热键已注册：" + this.settings.globalHotkey);
+    } catch (e) {
+      console.error("quick-capture global hotkey:", e);
+    }
+  }
+    onunload() {
+    try {
+      const remote = window.electron && window.electron.remote;
+      if (remote && remote.globalShortcut && (this.settings.globalHotkey || "").trim()) {
+        remote.globalShortcut.unregister(this.settings.globalHotkey);
+      }
+    } catch (e) {}
+  }
+
+async saveSettings() { await this.saveData(this.settings); }
 
   /** 计算目标笔记路径（不存在也返回路径） */
   targetPath() {
@@ -159,6 +195,13 @@ class QCSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("连续捕捉").setDesc("回车后不关闭，继续输入下一条").addToggle((t) =>
       t.setValue(this.plugin.settings.keepOpen).onChange(async (v) => {
         this.plugin.settings.keepOpen = v; await this.plugin.saveSettings();
+      }));
+    new Setting(containerEl).setName("系统级全局热键（桌面端）")
+      .setDesc("Obsidian 未聚焦也能呼出，如 CommandOrControl+Alt+Q。留空禁用。注意：与其他软件冲突时会注册失败")
+      .addText((t) => t.setValue(this.plugin.settings.globalHotkey || "").onChange(async (v) => {
+        this.plugin.settings.globalHotkey = v.trim();
+        await this.plugin.saveSettings();
+        new Notice("重启 Obsidian 后生效");
       }));
     new Setting(containerEl).setName("设置快捷键")
       .setDesc("设置 → 快捷键 → 搜索「捕捉一条想法」，建议 Ctrl+Shift+Q")
